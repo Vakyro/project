@@ -1,0 +1,31 @@
+# Core dependencies
+rdkit-pypi
+torch>=2.0.0
+torchvision
+torchaudio
+numpy
+pandas
+tqdm
+
+# PyTorch Geometric (for GNN models)
+torch-geometric
+torch-scatter
+torch-sparse
+
+# Protein encoder dependencies (ESM2)
+transformers>=4.30.0
+tokenizers>=0.13.0
+sentencepiece>=0.1.99
+einops>=0.6.0
+
+# Structure processing (for AlphaFold CIF files)
+biopython>=1.81
+
+# Training utilities
+wandb  # Optional: for experiment tracking
+tensorboard  # Optional: for logging
+
+# Development
+pytest  # Optional: for testing
+black  # Optional: for code formatting
+ipython  # Optional: for interactive development

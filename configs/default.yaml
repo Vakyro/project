@@ -1,0 +1,79 @@
+# CLIPZyme Default Configuration
+# Simple setup for quick experimentation
+
+experiment_name: clipzyme_default
+description: Default configuration with small models for fast iteration
+random_seed: 42
+
+protein_encoder:
+  type: ESM2
+  plm_name: facebook/esm2_t12_35M_UR50D  # Smallest model (35M params)
+  pooling: attention
+  proj_dim: 256
+  dropout: 0.1
+  gradient_checkpointing: false
+  freeze_plm: false
+
+reaction_encoder:
+  type: Enhanced
+  feature_type: basic
+  use_enhanced_features: true
+  hidden_dim: 128
+  num_layers: 3
+  dropout: 0.1
+  proj_dim: 256
+  use_attention_pool: true
+
+training:
+  batch_size: 32
+  max_epochs: 100
+  device: cuda
+
+  # Optimizer
+  learning_rate: 0.0001
+  weight_decay: 0.05
+
+  # Learning rate schedule
+  use_scheduler: true
+  warmup_epochs: 10
+  min_lr: 0.000001
+
+  # CLIP loss
+  temperature: 0.07
+  learnable_temperature: false
+
+  # Regularization
+  gradient_clip: 1.0
+  use_amp: true
+
+  # Checkpointing
+  checkpoint_dir: checkpoints
+  save_every: 5
+  keep_last_n: 3
+  resume_from: null
+
+  # Logging
+  log_every: 10
+  wandb_project: null
+  wandb_name: null
+
+data:
+  data_dir: data
+  proteins_csv: data/proteins.csv
+  reactions_csv: data/reactions_extended.csv
+  enzyme_reactions_csv: data/enzyme_reactions.csv
+
+  # Training data (JSON format)
+  train_json: null
+  val_json: null
+  test_json: null
+
+  # DataLoader
+  num_workers: 4
+  prefetch_factor: 2
+  pin_memory: true
+
+  # Processing
+  max_protein_length: 650
+  use_alphafold_structures: false
+  structure_dir: null

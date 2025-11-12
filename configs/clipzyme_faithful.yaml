@@ -1,0 +1,97 @@
+# CLIPZyme Faithful Configuration
+# Exact architecture from the CLIPZyme paper
+
+experiment_name: clipzyme_faithful
+description: Faithful reproduction of CLIPZyme paper architecture
+random_seed: 42
+
+protein_encoder:
+  type: EGNN  # ESM2 + E(n)-equivariant GNN
+  plm_name: facebook/esm2_t33_650M_UR50D  # 650M parameter model
+  pooling: attention
+
+  # EGNN settings
+  k_neighbors: 30
+  distance_cutoff: 10.0
+  egnn_layers: 6
+  egnn_hidden_dim: 1280
+
+  # Projection
+  proj_dim: 512
+  proj_hidden_dim: 2048
+  dropout: 0.1
+
+  gradient_checkpointing: true
+  freeze_plm: false
+
+reaction_encoder:
+  type: DMPNN  # Two-stage Directed Message Passing Neural Network
+  feature_type: clipzyme  # 9 atom features, 3 edge features
+  use_enhanced_features: true
+
+  # DMPNN architecture
+  node_dim: 9  # CLIPZyme atom features
+  edge_dim: 3  # CLIPZyme edge features
+  dmpnn_hidden_dim: 1280
+  num_layers: 5
+  dropout: 0.1
+
+  # Projection
+  proj_dim: 512
+  use_attention_pool: true
+
+training:
+  batch_size: 64  # CLIPZyme paper
+  max_epochs: 100
+  device: cuda
+
+  # Optimizer (AdamW)
+  learning_rate: 0.0001
+  weight_decay: 0.05
+  betas: [0.9, 0.999]
+  eps: 1e-8
+
+  # Cosine annealing with warmup
+  use_scheduler: true
+  warmup_epochs: 10
+  min_lr: 0.000001
+
+  # CLIP loss
+  temperature: 0.07  # CLIPZyme paper
+  learnable_temperature: false
+
+  # Regularization
+  gradient_clip: 1.0
+  use_amp: true  # Mixed precision for memory efficiency
+
+  # Checkpointing
+  checkpoint_dir: checkpoints/clipzyme_faithful
+  save_every: 5
+  keep_last_n: 3
+  resume_from: null
+
+  # Logging
+  log_every: 10
+  wandb_project: clipzyme
+  wandb_name: faithful_reproduction
+
+data:
+  data_dir: data
+  proteins_csv: data/proteins.csv
+  reactions_csv: data/reactions_extended.csv
+  enzyme_reactions_csv: data/enzyme_reactions.csv
+
+  # Training data
+  train_json: null  # TODO: Add path to training dataset
+  val_json: null
+  test_json: null
+
+  # DataLoader
+  num_workers: 4
+  prefetch_factor: 2
+  pin_memory: true
+
+  # Processing
+  max_protein_length: 650
+  use_alphafold_structures: true  # CLIPZyme uses AlphaFold structures
+  structure_dir: structures/alphafold  # TODO: Add AlphaFold PDB files

@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mkdir:*)",
+      "Bash(python:*)",
+      "Bash(dir \"C:\\Users\\Latitude 7390\\desktop\\project\")",
+      "Bash(dir \"C:\\Users\\Latitude 7390\\desktop\\project\\scripts\")",
+      "Bash(pip install:*)",
+      "WebSearch",
+      "WebFetch(domain:arxiv.org)",
+      "Bash(dir:*)",
+      "Bash(tree:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
