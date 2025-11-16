@@ -28,7 +28,10 @@
       "Bash(move SCREENING_SYSTEM.md docs )",
       "Bash(move PROJECT_STATUS.md docs )",
       "Bash(move:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(git checkout:*)"
     ],
     "deny": [],
     "ask": []

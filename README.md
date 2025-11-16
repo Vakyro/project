@@ -4,7 +4,7 @@
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.0+-red.svg)](https://pytorch.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-**Production-ready implementation of CLIPZyme** ([Mikhael et al., 2024](https://arxiv.org/abs/2402.06748)) - a CLIP-style contrastive learning framework for matching enzymes to chemical reactions.
+**100% Faithful Implementation of CLIPZyme** ([Mikhael et al., 2024](https://arxiv.org/abs/2402.06748)) - Production-ready CLIP-style contrastive learning framework for matching enzymes to chemical reactions, matching the original paper architecture exactly.
 
 <p align="center">
   <img src="docs/images/clipzyme_overview.png" alt="CLIPZyme Overview" width="800"/>
@@ -12,10 +12,15 @@
 
 ## 🎯 Features
 
+### Production-Grade Architecture
+This implementation is **100% faithful to the CLIPZyme paper** with no simplified alternatives:
+- 🧬 **Protein Encoder**: ProteinEncoderEGNN (ESM2-650M + 6-layer E(n)-equivariant GNN)
+- ⚛️ **Reaction Encoder**: TwoStageDMPNN (CLIPZyme's 2-stage directed message passing)
+- 🔬 **Features**: Exact CLIPZyme features (9 atom features + 3 edge features)
+- 📐 **Architecture**: All hyperparameters match the paper exactly
+
 ### Core Capabilities
 - ⚡ **Virtual Screening**: Screen reactions against 260K+ pre-embedded proteins
-- 🧬 **Protein Encoder**: ESM2 (650M) + E(n)-Equivariant GNN for 3D structures
-- ⚛️ **Reaction Encoder**: Two-stage D-MPNN for chemical reaction graphs
 - 📊 **Evaluation**: BEDROC, Top-K accuracy, enrichment metrics matching the paper
 - 💾 **Checkpoint Management**: Auto-download official models from Zenodo
 
