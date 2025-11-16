@@ -93,7 +93,23 @@ pip install -r requirements-dev.txt
 
 ## ⚡ Quick Start
 
-### 1. Download Pre-trained Model
+**👉 New to CLIPZyme? Start here: [GETTING_STARTED.md](GETTING_STARTED.md)**
+
+### Option 1: Quick Test (No Download)
+
+```bash
+# Test architecture with random weights
+python test_architecture.py
+```
+
+### Option 2: Full Setup (Download Pretrained Model)
+
+```bash
+# Interactive setup script
+python quick_start.py
+```
+
+### Option 3: Manual Download
 
 ```python
 from checkpoints.downloader import CheckpointDownloader
