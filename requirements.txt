@@ -21,6 +21,15 @@ einops>=0.6.0
 # Structure processing (for AlphaFold CIF files)
 biopython>=1.81
 
+# Evaluation and analysis
+scikit-learn>=1.0.0  # For metrics (AUROC, AUPRC, ROC/PR curves)
+scipy>=1.9.0  # For statistical tests
+matplotlib>=3.5.0  # For visualization
+seaborn>=0.11.0  # For enhanced plots
+
+# Checkpoint management
+requests>=2.28.0  # For downloading checkpoints from Zenodo
+
 # Training utilities
 wandb  # Optional: for experiment tracking
 tensorboard  # Optional: for logging

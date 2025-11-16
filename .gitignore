@@ -40,11 +40,13 @@ ENV/
 data/*
 !data/.gitkeep
 
-# Models
-models/
-checkpoints/
+# Model weights (not source code directories)
 *.pt
 *.pth
+*.ckpt
+*.safetensors
+saved_models/
+trained_models/
 
 # Logs
 logs/

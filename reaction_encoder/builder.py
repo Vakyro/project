@@ -1,6 +1,8 @@
 """
 Build transition state graphs from reaction SMILES.
-Combines reactants and products into a unified graph representation.
+
+This module constructs graph representations of chemical reactions by combining
+information from reactant and product molecules into a unified transition state graph.
 """
 
 import torch
@@ -19,180 +21,284 @@ from .features import (
 
 
 class EdgeChange(IntEnum):
-    """Enumeration of edge change types."""
+    """
+    Enumeration of bond change types in chemical reactions.
+
+    Classifies how bonds change during a reaction:
+        - UNCHANGED: Bond exists in both reactants and products with same properties
+        - FORMED: Bond appears in products but not in reactants (bond formation)
+        - BROKEN: Bond exists in reactants but not in products (bond breaking)
+        - CHANGED_ORDER: Bond exists in both but with different order (e.g., single to double)
+    """
     UNCHANGED = 0
     FORMED = 1
     BROKEN = 2
     CHANGED_ORDER = 3
 
 
-def diff_bonds(react_bonds: Dict[Tuple[int, int], Dict],
-               prod_bonds: Dict[Tuple[int, int], Dict]) -> Dict[Tuple[int, int], EdgeChange]:
+def diff_bonds(
+    reactant_bonds: Dict[Tuple[int, int], Dict],
+    product_bonds: Dict[Tuple[int, int], Dict]
+) -> Dict[Tuple[int, int], EdgeChange]:
     """
-    Compare bonds between reactants and products to determine changes.
+    Compare bonds between reactants and products to identify bond changes.
+
+    This function analyzes which bonds are formed, broken, or modified during
+    a chemical reaction by comparing the bond dictionaries from reactants and products.
 
     Args:
-        react_bonds: Bond dictionary from reactants
-        prod_bonds: Bond dictionary from products
+        reactant_bonds: Bond dictionary from reactant molecules
+                       Format: {(atom_map_1, atom_map_2): bond_properties}
+        product_bonds: Bond dictionary from product molecules
+                      Format: {(atom_map_1, atom_map_2): bond_properties}
 
     Returns:
-        Dictionary mapping edge tuples to EdgeChange enum values
+        Dictionary mapping bond (atom_map_1, atom_map_2) to EdgeChange enum value
+        indicating how each bond changed during the reaction
+
+    Example:
+        >>> reactant_bonds = {(1, 2): {'order': 2, 'aromatic': False}}
+        >>> product_bonds = {(1, 2): {'order': 1, 'aromatic': False}, (2, 3): {'order': 1, 'aromatic': False}}
+        >>> changes = diff_bonds(reactant_bonds, product_bonds)
+        >>> changes[(1, 2)]  # Bond order changed
+        <EdgeChange.CHANGED_ORDER: 3>
+        >>> changes[(2, 3)]  # New bond formed
+        <EdgeChange.FORMED: 1>
     """
-    all_keys = set(react_bonds) | set(prod_bonds)
-    changes = {}
+    # Get all unique bonds from both reactants and products
+    all_bond_keys = set(reactant_bonds) | set(product_bonds)
+    bond_changes = {}
 
-    for e in all_keys:
-        r = react_bonds.get(e)
-        p = prod_bonds.get(e)
+    # Classify each bond
+    for bond_key in all_bond_keys:
+        reactant_bond = reactant_bonds.get(bond_key)
+        product_bond = product_bonds.get(bond_key)
 
-        if r and p:
-            # Bond exists in both - check if it changed
-            if r["order"] == p["order"] and r["aromatic"] == p["aromatic"]:
-                changes[e] = EdgeChange.UNCHANGED
+        if reactant_bond and product_bond:
+            # Bond exists in both - check if properties changed
+            if (reactant_bond["order"] == product_bond["order"] and
+                reactant_bond["aromatic"] == product_bond["aromatic"]):
+                bond_changes[bond_key] = EdgeChange.UNCHANGED
             else:
-                changes[e] = EdgeChange.CHANGED_ORDER
-        elif p and not r:
-            changes[e] = EdgeChange.FORMED
-        elif r and not p:
-            changes[e] = EdgeChange.BROKEN
+                bond_changes[bond_key] = EdgeChange.CHANGED_ORDER
+        elif product_bond and not reactant_bond:
+            # Bond only in products - it was formed
+            bond_changes[bond_key] = EdgeChange.FORMED
+        elif reactant_bond and not product_bond:
+            # Bond only in reactants - it was broken
+            bond_changes[bond_key] = EdgeChange.BROKEN
 
-    return changes
+    return bond_changes
 
 
-def build_transition_graph(reacts: List, prods: List, use_enhanced_features: bool = False) -> Data:
+def build_transition_graph(
+    reactant_molecules: List,
+    product_molecules: List,
+    use_enhanced_features: bool = False
+) -> Data:
     """
-    Build a PyTorch Geometric Data object representing the reaction transition state.
+    Build a PyTorch Geometric graph representing the reaction transition state.
 
-    The graph combines information from both reactants and products:
-    - Nodes represent atoms (by map number)
-    - Node features include properties from both reactant and product sides
-    - Edges represent bonds with labels indicating changes (formed/broken/unchanged)
+    This function creates a unified graph representation that captures the transformation
+    from reactants to products. Each node represents an atom (identified by map number),
+    and edges represent bonds. Node features encode properties from both reactant and
+    product states, while edge features indicate bond changes.
+
+    The transition state graph is central to learning reaction representations:
+    - It explicitly models which atoms and bonds participate in the reaction
+    - Node features capture how atoms change during transformation
+    - Edge labels classify bonds as formed, broken, or modified
 
     Args:
-        reacts: List of RDKit Mol objects (reactants)
-        prods: List of RDKit Mol objects (products)
-        use_enhanced_features: If True, use enhanced features with one-hot element encoding
-                               and reactive node flags (28 features vs 16 features)
+        reactant_molecules: List of RDKit Mol objects representing reactants
+        product_molecules: List of RDKit Mol objects representing products
+        use_enhanced_features: If True, use 28-dimensional node features including
+                              one-hot element encoding and reactive node flags.
+                              If False, use 17-dimensional basic features.
 
     Returns:
-        PyTorch Geometric Data object with:
-        - x: node features [num_nodes, feature_dim]
-            - Original: 7 (reactant) + 7 (product) + 2 (existence) + 1 (changed) = 17
-            - Enhanced: 7 (reactant) + 7 (product) + 2 (existence) + 11 (element one-hot) + 1 (reactive) = 28
-        - edge_index: edge connectivity [2, num_edges]
-        - edge_attr: edge features [num_edges, 6]
+        PyTorch Geometric Data object containing:
+            - x: Node feature matrix, shape [num_nodes, feature_dim]
+              * Basic (17D): reactant_features (7) + product_features (7) +
+                            exists_in_reactant (1) + exists_in_product (1) + changed (1)
+              * Enhanced (28D): reactant_features (7) + product_features (7) +
+                               exists_flags (2) + element_one_hot (11) + is_reactive (1)
+            - edge_index: Edge connectivity in COO format, shape [2, num_edges]
+            - edge_attr: Edge feature matrix, shape [num_edges, 6]
+              Features: [exists_reactant, exists_product, formed, broken, unchanged, changed_order]
+
+    Example:
+        >>> from rdkit import Chem
+        >>> reactants = [Chem.MolFromSmiles("[C:1]=[O:2]")]
+        >>> products = [Chem.MolFromSmiles("[C:1]-[O:2]")]
+        >>> graph = build_transition_graph(reactants, products)
+        >>> graph.x.shape  # Node features
+        torch.Size([2, 17])
+        >>> graph.edge_index.shape  # Edges
+        torch.Size([2, 2])  # Bidirectional edge
     """
-    # Build atom mapping indices
-    idx_r = mapnums_index(reacts)
-    idx_p = mapnums_index(prods)
+    # Build lookup indices: atom_map_number -> (molecule_idx, atom_idx)
+    reactant_atom_index = mapnums_index(reactant_molecules)
+    product_atom_index = mapnums_index(product_molecules)
 
-    # Get universe of mapped atoms
-    mapnums = sorted(set(idx_r) | set(idx_p))
-    mapnum_to_node = {m: i for i, m in enumerate(mapnums)}
+    # Get all unique atom map numbers from both reactants and products
+    all_atom_map_numbers = sorted(set(reactant_atom_index) | set(product_atom_index))
 
-    # Get bond sets and compute changes
-    bonds_r = bond_set(reacts)
-    bonds_p = bond_set(prods)
-    changes = diff_bonds(bonds_r, bonds_p)
+    # Create mapping from atom_map_number to graph node index
+    atom_map_to_node_index = {
+        map_num: node_idx
+        for node_idx, map_num in enumerate(all_atom_map_numbers)
+    }
 
-    # Find reactive edges for enhanced features
-    reactive_edges = set()
+    # Extract bond sets from reactants and products
+    reactant_bonds = bond_set(reactant_molecules)
+    product_bonds = bond_set(product_molecules)
+
+    # Determine how bonds change during the reaction
+    bond_changes = diff_bonds(reactant_bonds, product_bonds)
+
+    # Identify which bonds participate in the reaction (for enhanced features)
+    reactive_bond_set = set()
     if use_enhanced_features:
-        for e, ch in changes.items():
-            if ch != EdgeChange.UNCHANGED:
-                reactive_edges.add(e)
+        for bond_key, change_type in bond_changes.items():
+            if change_type != EdgeChange.UNCHANGED:
+                # This bond is formed, broken, or changes order
+                reactive_bond_set.add(bond_key)
 
-    # Build node features
-    x_list = []
+    # Build node feature vectors for each atom
+    node_feature_list = []
 
-    for m in mapnums:
-        ar = ap = None
+    for atom_map_number in all_atom_map_numbers:
+        reactant_atom = None
+        product_atom = None
 
-        # Get atom from reactant side if it exists
-        if m in idx_r:
-            mi, ai = idx_r[m]
-            ar = reacts[mi].GetAtomWithIdx(ai)
+        # Get atom from reactant side if it exists there
+        if atom_map_number in reactant_atom_index:
+            molecule_idx, atom_idx = reactant_atom_index[atom_map_number]
+            reactant_atom = reactant_molecules[molecule_idx].GetAtomWithIdx(atom_idx)
 
-        # Get atom from product side if it exists
-        if m in idx_p:
-            mi, ai = idx_p[m]
-            ap = prods[mi].GetAtomWithIdx(ai)
+        # Get atom from product side if it exists there
+        if atom_map_number in product_atom_index:
+            molecule_idx, atom_idx = product_atom_index[atom_map_number]
+            product_atom = product_molecules[molecule_idx].GetAtomWithIdx(atom_idx)
 
-        # Extract features from both sides
-        fr = atom_basic_features(ar) if ar else {}
-        fp = atom_basic_features(ap) if ap else {}
+        # Extract chemical features from reactant and product atoms
+        reactant_features = atom_basic_features(reactant_atom) if reactant_atom else {}
+        product_features = atom_basic_features(product_atom) if product_atom else {}
 
         if use_enhanced_features:
-            # Enhanced features with one-hot element encoding
-            Z = fr.get("Z", fp.get("Z", 0))
-            is_reactive = is_reactive_node(m, reactive_edges)
+            # Enhanced features: 28-dimensional
+            # Get atomic number (Z) from whichever side exists
+            atomic_number = reactant_features.get("Z", product_features.get("Z", 0))
 
-            # Reactant basic (7) + Product basic (7) + Existence (2) + One-hot (11) + Reactive (1) = 28
-            xr = vectorize_atom_features(fr)  # 7 features
-            xp = vectorize_atom_features(fp)  # 7 features
-            exists_flags = [int(ar is not None), int(ap is not None)]  # 2 features
+            # Check if this atom participates in reactive bonds
+            is_reactive = is_reactive_node(atom_map_number, reactive_bond_set)
 
-            # Get one-hot and reactive flag (12 features)
+            # Vectorize basic features from both sides (7 features each)
+            reactant_vec = vectorize_atom_features(reactant_features)  # 7 features
+            product_vec = vectorize_atom_features(product_features)    # 7 features
+
+            # Existence flags (2 features)
+            exists_flags = [
+                int(reactant_atom is not None),
+                int(product_atom is not None)
+            ]
+
+            # One-hot element encoding and reactive flag (12 features)
             from .features import one_hot_element
-            element_oh = one_hot_element(Z)  # 11 features
-            reactive_flag = [int(is_reactive)]  # 1 feature
+            element_one_hot = one_hot_element(atomic_number)  # 11 features
+            reactive_flag = [int(is_reactive)]                # 1 feature
 
-            x = torch.tensor(xr + xp + exists_flags + element_oh + reactive_flag, dtype=torch.float32)
+            # Concatenate all features: 7 + 7 + 2 + 11 + 1 = 28
+            node_features = torch.tensor(
+                reactant_vec + product_vec + exists_flags + element_one_hot + reactive_flag,
+                dtype=torch.float32
+            )
         else:
-            # Original features
-            xr = vectorize_atom_features(fr)
-            xp = vectorize_atom_features(fp)
+            # Basic features: 17-dimensional
+            # Vectorize basic features from both sides (7 features each)
+            reactant_vec = vectorize_atom_features(reactant_features)
+            product_vec = vectorize_atom_features(product_features)
 
-            # Add existence flags
-            exists_r = [1 if ar else 0]
-            exists_p = [1 if ap else 0]
+            # Existence flags (2 features total, split for clarity)
+            exists_in_reactant = [1 if reactant_atom else 0]
+            exists_in_product = [1 if product_atom else 0]
 
-            # Mark if atom changed
-            changed = atom_changed(ar, ap)
-            changed_flag = [1.0 if changed else 0.0]
+            # Check if atom properties changed between reactant and product
+            atom_has_changed = atom_changed(reactant_atom, product_atom)
+            change_flag = [1.0 if atom_has_changed else 0.0]
 
-            # Combine: 7 + 7 + 2 + 1 = 17
-            x = torch.tensor(xr + xp + exists_r + exists_p + changed_flag, dtype=torch.float32)
+            # Concatenate all features: 7 + 7 + 1 + 1 + 1 = 17
+            node_features = torch.tensor(
+                reactant_vec + product_vec + exists_in_reactant + exists_in_product + change_flag,
+                dtype=torch.float32
+            )
 
-        x_list.append(x)
+        node_feature_list.append(node_features)
 
-    # Stack node features
-    x = torch.stack(x_list, dim=0)
+    # Stack all node features into matrix
+    node_feature_matrix = torch.stack(node_feature_list, dim=0)
 
     # Build edges and edge attributes
-    edge_index = []
-    edge_attr = []
+    edge_index_list = []
+    edge_attribute_list = []
 
-    for e, ch in changes.items():
-        u, v = e
-        iu, iv = mapnum_to_node[u], mapnum_to_node[v]
+    # Process each bond and create bidirectional edges
+    for bond_key, change_type in bond_changes.items():
+        # bond_key is (atom_map_u, atom_map_v) where u < v
+        atom_map_u, atom_map_v = bond_key
 
-        # Add undirected edges (both directions)
-        edge_index += [[iu, iv], [iv, iu]]
+        # Convert atom map numbers to node indices
+        node_idx_u = atom_map_to_node_index[atom_map_u]
+        node_idx_v = atom_map_to_node_index[atom_map_v]
 
-        # Edge attributes encode:
-        # - Bond exists in reactant
-        # - Bond exists in product
-        # - Bond formed
-        # - Bond broken
-        # - Bond unchanged
-        # - Bond changed order
-        r = bonds_r.get(e) is not None
-        p = bonds_p.get(e) is not None
-        formed = int(ch == EdgeChange.FORMED)
-        broken = int(ch == EdgeChange.BROKEN)
-        unchg = int(ch == EdgeChange.UNCHANGED)
-        chgord = int(ch == EdgeChange.CHANGED_ORDER)
+        # Add bidirectional edges (undirected graph represented as directed)
+        edge_index_list += [[node_idx_u, node_idx_v], [node_idx_v, node_idx_u]]
 
-        attr = [int(r), int(p), formed, broken, unchg, chgord]
-        edge_attr += [attr, attr]  # Duplicate for both directions
+        # Build edge attribute vector (6 features):
+        # 1. exists_in_reactant: 1 if bond exists in reactants, 0 otherwise
+        # 2. exists_in_product: 1 if bond exists in products, 0 otherwise
+        # 3. formed: 1 if bond was formed (only in products), 0 otherwise
+        # 4. broken: 1 if bond was broken (only in reactants), 0 otherwise
+        # 5. unchanged: 1 if bond unchanged, 0 otherwise
+        # 6. changed_order: 1 if bond order changed, 0 otherwise
 
-    # Create PyG Data object
-    data = Data(
-        x=x,
-        edge_index=torch.tensor(edge_index, dtype=torch.long).t().contiguous() if edge_index else torch.zeros((2, 0), dtype=torch.long),
-        edge_attr=torch.tensor(edge_attr, dtype=torch.float32) if edge_attr else torch.zeros((0, 6), dtype=torch.float32),
+        exists_in_reactant = int(reactant_bonds.get(bond_key) is not None)
+        exists_in_product = int(product_bonds.get(bond_key) is not None)
+        bond_formed = int(change_type == EdgeChange.FORMED)
+        bond_broken = int(change_type == EdgeChange.BROKEN)
+        bond_unchanged = int(change_type == EdgeChange.UNCHANGED)
+        bond_order_changed = int(change_type == EdgeChange.CHANGED_ORDER)
+
+        edge_attributes = [
+            exists_in_reactant,
+            exists_in_product,
+            bond_formed,
+            bond_broken,
+            bond_unchanged,
+            bond_order_changed
+        ]
+
+        # Add attributes for both edge directions (same attributes for both)
+        edge_attribute_list += [edge_attributes, edge_attributes]
+
+    # Convert to PyTorch Geometric Data object
+    transition_graph = Data(
+        # Node feature matrix
+        x=node_feature_matrix,
+
+        # Edge connectivity in COO format [2, num_edges]
+        edge_index=torch.tensor(edge_index_list, dtype=torch.long).t().contiguous()
+                   if edge_index_list
+                   else torch.zeros((2, 0), dtype=torch.long),
+
+        # Edge feature matrix [num_edges, 6]
+        edge_attr=torch.tensor(edge_attribute_list, dtype=torch.float32)
+                  if edge_attribute_list
+                  else torch.zeros((0, 6), dtype=torch.float32),
     )
-    data.num_nodes = x.size(0)
 
-    return data
+    # Explicitly set number of nodes (required by some PyG operations)
+    transition_graph.num_nodes = node_feature_matrix.size(0)
+
+    return transition_graph

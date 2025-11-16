@@ -7,81 +7,150 @@ from rdkit import Chem
 from typing import Dict, Tuple, List
 
 
-def parse_reaction_smiles(rxn_smiles: str):
+def parse_reaction_smiles(reaction_smiles: str):
     """
-    Parse reaction SMILES into reactant and product molecules.
+    Parse reaction SMILES string into reactant and product molecule objects.
+
+    This function splits an atom-mapped reaction SMILES string into its constituent
+    reactant and product molecules, validating that all components can be parsed correctly.
 
     Args:
-        rxn_smiles: Reaction SMILES with atom mapping (e.g., "[N:1]=[N:2]>>[N:1]-[N:2]")
+        reaction_smiles: Reaction SMILES string with atom mapping
+                        Format: "reactants>>products"
+                        Example: "[N:1]=[N:2]>>[N:1]-[N:2]"
+                        Multi-component reactions use '.' separator: "A.B>>C.D"
 
     Returns:
-        Tuple of (reactant_mols, product_mols) where each is a list of RDKit Mol objects
+        Tuple containing:
+            - reactant_molecules: List of RDKit Mol objects for reactants
+            - product_molecules: List of RDKit Mol objects for products
 
     Raises:
-        ValueError: If SMILES is invalid or not properly formatted
+        ValueError: If SMILES string is missing '>>' separator or contains invalid SMILES
+
+    Example:
+        >>> reactants, products = parse_reaction_smiles("[CH3:1][OH:2]>>[CH3:1][O:2][CH3:1]")
+        >>> len(reactants), len(products)
+        (1, 1)
     """
-    if ">>" not in rxn_smiles:
-        raise ValueError(f"Invalid reaction SMILES (missing '>>'): {rxn_smiles}")
+    # Check for required reaction arrow separator
+    if ">>" not in reaction_smiles:
+        raise ValueError(f"Invalid reaction SMILES (missing '>>' separator): {reaction_smiles}")
 
-    reactants_str, products_str = rxn_smiles.split(">>")
-    reactant_smiles = reactants_str.split(".") if reactants_str else []
-    product_smiles = products_str.split(".") if products_str else []
+    # Split into reactants and products
+    reactants_string, products_string = reaction_smiles.split(">>")
 
-    reacts = [Chem.MolFromSmiles(s, sanitize=True) for s in reactant_smiles]
-    prods = [Chem.MolFromSmiles(s, sanitize=True) for s in product_smiles]
+    # Split multi-component reactants/products (separated by '.')
+    reactant_smiles_list = reactants_string.split(".") if reactants_string else []
+    product_smiles_list = products_string.split(".") if products_string else []
 
-    # Validate all molecules were parsed successfully
-    for m in reacts + prods:
-        if m is None:
-            raise ValueError(f"Bad SMILES in reaction: {rxn_smiles}")
+    # Parse SMILES strings into RDKit molecule objects
+    reactant_molecules = [Chem.MolFromSmiles(smiles, sanitize=True) for smiles in reactant_smiles_list]
+    product_molecules = [Chem.MolFromSmiles(smiles, sanitize=True) for smiles in product_smiles_list]
 
-    return reacts, prods
+    # Validate that all molecules were parsed successfully (None indicates parse failure)
+    all_molecules = reactant_molecules + product_molecules
+    for molecule in all_molecules:
+        if molecule is None:
+            raise ValueError(f"Failed to parse SMILES in reaction: {reaction_smiles}")
+
+    return reactant_molecules, product_molecules
 
 
-def mapnums_index(mols: List[Chem.Mol]) -> Dict[int, Tuple[int, int]]:
+def mapnums_index(molecules: List[Chem.Mol]) -> Dict[int, Tuple[int, int]]:
     """
-    Create index mapping atom map numbers to (molecule_idx, atom_idx).
+    Create lookup index mapping atom map numbers to their positions in molecule list.
+
+    In atom-mapped reactions, each atom is assigned a unique map number (e.g., [C:1], [O:2]).
+    This function creates a dictionary that maps these map numbers to the molecule and atom
+    indices where they occur, enabling efficient lookup of atoms across multiple molecules.
 
     Args:
-        mols: List of RDKit Mol objects with atom map numbers
+        molecules: List of RDKit Mol objects with atom map numbers assigned
 
     Returns:
-        Dictionary mapping mapnum -> (mol_idx, atom_idx)
+        Dictionary mapping atom_map_number -> (molecule_index, atom_index)
+        Only includes atoms with map numbers > 0
+
+    Example:
+        >>> from rdkit import Chem
+        >>> mol1 = Chem.MolFromSmiles("[CH3:1][OH:2]")
+        >>> mol2 = Chem.MolFromSmiles("[CH3:3][NH2:4]")
+        >>> index = mapnums_index([mol1, mol2])
+        >>> index[1]  # Carbon from first molecule
+        (0, 0)
+        >>> index[4]  # Nitrogen from second molecule
+        (1, 1)
     """
-    idx = {}
-    for mi, mol in enumerate(mols):
-        for ai, atom in enumerate(mol.GetAtoms()):
-            mapnum = atom.GetAtomMapNum()
-            if mapnum > 0:
-                idx[mapnum] = (mi, ai)
-    return idx
+    atom_map_index = {}
+
+    # Iterate through all molecules and their atoms
+    for molecule_idx, molecule in enumerate(molecules):
+        for atom_idx, atom in enumerate(molecule.GetAtoms()):
+            atom_map_number = atom.GetAtomMapNum()
+
+            # Only index atoms that have a map number assigned
+            if atom_map_number > 0:
+                atom_map_index[atom_map_number] = (molecule_idx, atom_idx)
+
+    return atom_map_index
 
 
-def bond_set(mols: List[Chem.Mol]) -> Dict[Tuple[int, int], Dict]:
+def bond_set(molecules: List[Chem.Mol]) -> Dict[Tuple[int, int], Dict]:
     """
-    Extract all bonds between mapped atoms.
+    Extract all bonds between atom-mapped atoms with their chemical properties.
+
+    This function identifies bonds that connect atoms with map numbers and records
+    their chemical properties. Only bonds between mapped atoms are included, as
+    these are the atoms that participate in the chemical transformation.
 
     Args:
-        mols: List of RDKit Mol objects
+        molecules: List of RDKit Mol objects with atom-mapped atoms
 
     Returns:
-        Dictionary with key (mapu, mapv) where u < v, and value containing bond properties:
-        - order: bond order as integer
-        - aromatic: whether bond is aromatic
-        - conj: whether bond is conjugated
-        - ring: whether bond is in a ring
+        Dictionary mapping (atom_map_u, atom_map_v) -> bond_properties
+        where atom_map_u < atom_map_v (canonically sorted), and bond_properties contains:
+            - order: Bond order as integer (1=single, 2=double, 3=triple, 1.5=aromatic)
+            - aromatic: Boolean indicating if bond is aromatic
+            - conj: Boolean indicating if bond is conjugated
+            - ring: Boolean indicating if bond is part of a ring system
+
+    Note:
+        - Only bonds between two mapped atoms (map number > 0) are included
+        - Bond keys are sorted to ensure canonical representation: (1,2) not (2,1)
+        - If a bond appears in multiple molecules, the last occurrence overwrites
+
+    Example:
+        >>> mol = Chem.MolFromSmiles("[C:1]=[C:2]-[O:3]")
+        >>> bonds = bond_set([mol])
+        >>> bonds[(1, 2)]  # Double bond between C1 and C2
+        {'order': 2, 'aromatic': False, 'conj': True, 'ring': False}
     """
-    edges = {}
-    for mol in mols:
-        for b in mol.GetBonds():
-            a1, a2 = b.GetBeginAtom(), b.GetEndAtom()
-            m1, m2 = a1.GetAtomMapNum(), a2.GetAtomMapNum()
-            if m1 and m2:  # Only consider bonds between mapped atoms
-                u, v = sorted((m1, m2))
-                edges[(u, v)] = {
-                    "order": int(b.GetBondTypeAsDouble()),
-                    "aromatic": b.GetIsAromatic(),
-                    "conj": b.GetIsConjugated(),
-                    "ring": b.IsInRing(),
+    bond_dictionary = {}
+
+    # Iterate through all molecules
+    for molecule in molecules:
+        # Process each bond in the molecule
+        for bond in molecule.GetBonds():
+            # Get the two atoms connected by this bond
+            begin_atom = bond.GetBeginAtom()
+            end_atom = bond.GetEndAtom()
+
+            # Get their atom map numbers
+            begin_map_num = begin_atom.GetAtomMapNum()
+            end_map_num = end_atom.GetAtomMapNum()
+
+            # Only process bonds between mapped atoms (both map numbers must be non-zero)
+            if begin_map_num and end_map_num:
+                # Create canonical bond key (smaller map number first)
+                bond_key = tuple(sorted((begin_map_num, end_map_num)))
+
+                # Store bond properties
+                bond_dictionary[bond_key] = {
+                    "order": int(bond.GetBondTypeAsDouble()),
+                    "aromatic": bond.GetIsAromatic(),
+                    "conj": bond.GetIsConjugated(),
+                    "ring": bond.IsInRing(),
                 }
-    return edges
+
+    return bond_dictionary

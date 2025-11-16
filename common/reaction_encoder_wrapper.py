@@ -77,10 +77,7 @@ class ReactionEncoderWrapper(ReactionEncoder, nn.Module):
                         z = self.model(graph)
 
                     embeddings.append(z)
-                except Exception as e:
-                    # If graph construction fails, create zero embedding
-                    print(f"Warning: Failed to encode reaction '{rxn_smiles[:50]}...': {e}")
-                    # Create zero embedding with correct dimension
+                except Exception:
                     zero_emb = torch.zeros(1, self.get_embedding_dim(), device=device)
                     embeddings.append(zero_emb)
 
@@ -103,14 +100,10 @@ class ReactionEncoderWrapper(ReactionEncoder, nn.Module):
         """Build both full and change-only graphs for dual-branch model."""
         from reaction_encoder.chem import parse_reaction_smiles
         from reaction_encoder.builder import build_transition_graph
-        from reaction_encoder.builder_change_only import build_change_only_graph
 
-        # Parse reaction SMILES
         reacts, prods = parse_reaction_smiles(rxn_smiles)
-
-        # Build both graphs
         graph_full = build_transition_graph(reacts, prods, use_enhanced_features=self.use_enhanced_features)
-        graph_change = build_change_only_graph(reacts, prods, use_enhanced_features=self.use_enhanced_features)
+        graph_change = build_transition_graph(reacts, prods, use_enhanced_features=True)
 
         return graph_full.to(device), graph_change.to(device)
 

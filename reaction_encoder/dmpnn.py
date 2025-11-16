@@ -288,7 +288,7 @@ class TwoStageDMPNN(nn.Module):
 
     def get_embedding_dim(self) -> int:
         """Get the output embedding dimension."""
-        return self.projection.net[-1].out_features
+        return self.projection[-1].out_features
 
 
 class ReactionDMPNN(nn.Module):

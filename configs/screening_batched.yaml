@@ -1,0 +1,84 @@
+# Batched Screening Configuration
+# For high-throughput screening (>1000 reactions)
+
+screening:
+  mode: "batched"      # interactive or batched
+  batch_size: 64       # Reactions per batch
+  num_workers: 4       # DataLoader workers
+  top_k: 100           # Number of top matches to return per reaction
+  evaluate: true       # Compute metrics if true positives available
+
+model:
+  # Path to trained CLIPZyme model checkpoint
+  checkpoint_path: null  # e.g., "models/clipzyme_model.pt"
+
+  # Or use config to build model from scratch
+  config_path: "configs/clipzyme_faithful.yaml"
+
+  # Multi-GPU support
+  devices: ["cuda:0"]  # List of devices, e.g., ["cuda:0", "cuda:1"]
+
+screening_set:
+  # Pre-embedded proteins (261K proteins in CLIPZyme paper)
+  embeddings_path: "data/screening_set/screening_set.p"
+
+  # Protein sequences (optional, for metadata)
+  sequences_path: "data/screening_set/uniprot2sequence.p"
+
+  # Or build from model and CSV
+  # build_from_csv: true
+  # csv_path: "data/proteins.csv"
+  # id_column: "protein_id"
+  # sequence_column: "sequence"
+  # batch_size: 32
+
+protein_database:
+  # Optional protein metadata
+  csv_path: null  # "data/proteins.csv"
+  id_column: "protein_id"
+  sequence_column: "sequence"
+  metadata_columns: ["ec_number", "organism", "name"]
+
+# Input reactions
+reactions:
+  # CSV file with reactions to screen
+  csv_path: "data/reactions_to_screen.csv"
+  reaction_column: "reaction_smiles"
+  id_column: "reaction_id"
+
+  # Optional: true positive proteins for evaluation
+  true_positives_column: null  # Column with comma-separated protein IDs
+
+  # Or provide reactions directly
+  # smiles_list: ["[C:1]=[O:2]>>[C:1]-[O:2]", ...]
+  # ids_list: ["rxn_1", "rxn_2", ...]
+
+cache:
+  # Enable caching for repeated screening
+  enabled: false  # Usually disable for large batch jobs
+  memory_cache_size: 0
+  disk_cache_dir: null
+  disk_cache_size_gb: 0
+
+output:
+  # Output directory for results
+  output_dir: "results/screening_batch"
+  save_rankings: true
+  save_embeddings: false
+  save_scores: true
+  save_metrics: true
+
+  # Save intermediate results during batch processing
+  save_intermediate: true
+
+# Metrics configuration
+metrics:
+  bedroc_alpha: [20.0, 50.0, 85.0]
+  top_k_values: [1, 5, 10, 50, 100]
+  ef_fractions: [0.01, 0.05, 0.10]  # Enrichment Factor at 1%, 5%, 10%
+
+# Performance optimization
+optimization:
+  use_amp: true  # Automatic Mixed Precision
+  pin_memory: true
+  persistent_workers: true

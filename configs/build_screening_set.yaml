@@ -1,0 +1,49 @@
+# Configuration for Building Screening Set
+# Encodes proteins from CSV/FASTA and creates screening_set.p
+
+model:
+  # Model to use for encoding proteins
+  checkpoint_path: null  # e.g., "models/clipzyme_model.pt"
+  config_path: "configs/clipzyme_faithful.yaml"
+  device: "cuda"
+
+# Protein input
+proteins:
+  # CSV with protein sequences
+  csv_path: "data/proteins.csv"
+  id_column: "protein_id"
+  sequence_column: "sequence"
+
+  # Optional: filter by criteria
+  filter_max_length: 650  # ESM2 default max
+  filter_min_length: 50
+
+  # Or load from pickle (uniprot2sequence.p format)
+  # pickle_path: "data/uniprot2sequence.p"
+
+# Encoding settings
+encoding:
+  batch_size: 32
+  num_workers: 4
+  show_progress: true
+
+  # For EGNN protein encoder
+  use_structures: false
+  structures_dir: null  # e.g., "data/alphafold_structures/"
+  structure_format: "cif"  # cif or pdb
+
+# Output
+output:
+  # Save screening set
+  screening_set_path: "data/screening_set/screening_set.p"
+
+  # Also save protein database
+  protein_db_path: "data/screening_set/uniprot2sequence.p"
+
+  # Embedding dimension (auto-detected from model)
+  embedding_dim: 512
+
+# Performance
+optimization:
+  use_amp: true  # Mixed precision for faster encoding
+  gradient_checkpointing: false  # Not needed for inference

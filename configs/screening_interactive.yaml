@@ -1,0 +1,55 @@
+# Interactive Screening Configuration
+# For single-reaction or small-scale screening (<1000 reactions)
+
+screening:
+  mode: "interactive"  # interactive or batched
+  top_k: 100           # Number of top matches to return
+  evaluate: true       # Compute metrics if true positives available
+
+model:
+  # Path to trained CLIPZyme model checkpoint
+  checkpoint_path: null  # e.g., "models/clipzyme_model.pt"
+
+  # Or use config to build model from scratch
+  config_path: "configs/clipzyme_faithful.yaml"
+
+  device: "cuda"  # cuda, cpu, or cuda:0, cuda:1, etc.
+
+screening_set:
+  # Pre-embedded proteins
+  embeddings_path: "data/screening_set/screening_set.p"
+
+  # Protein sequences (optional, for metadata)
+  sequences_path: "data/screening_set/uniprot2sequence.p"
+
+  # Or build from CSV
+  # csv_path: "data/proteins.csv"
+  # id_column: "protein_id"
+  # sequence_column: "sequence"
+
+protein_database:
+  # Optional protein metadata
+  csv_path: null  # "data/proteins.csv"
+  id_column: "protein_id"
+  sequence_column: "sequence"
+  metadata_columns: ["ec_number", "organism", "name"]
+
+cache:
+  # Enable caching for repeated screening
+  enabled: true
+  memory_cache_size: 1000  # Number of embeddings in memory
+  disk_cache_dir: "cache/embeddings"
+  disk_cache_size_gb: 5.0
+
+output:
+  # Output directory for results
+  output_dir: "results/screening"
+  save_rankings: true
+  save_embeddings: false
+  save_metrics: true
+
+# Metrics configuration
+metrics:
+  bedroc_alpha: [20.0, 50.0, 85.0]
+  top_k_values: [1, 5, 10, 50, 100]
+  ef_fractions: [0.01, 0.05, 0.10]  # Enrichment Factor at 1%, 5%, 10%

@@ -87,58 +87,61 @@ class ProteinEncoderESM2(nn.Module):
         """
         super().__init__()
 
-        print(f"Loading ESM2 model: {plm_name}")
         self.tokenizer = AutoTokenizer.from_pretrained(plm_name, do_lower_case=False)
         self.plm = AutoModel.from_pretrained(plm_name)
 
-        # Enable gradient checkpointing for memory efficiency
         if gradient_checkpointing and hasattr(self.plm, "gradient_checkpointing_enable"):
             self.plm.gradient_checkpointing_enable()
-            print("Gradient checkpointing enabled")
 
         self.hidden_size = self.plm.config.hidden_size
-        print(f"ESM2 hidden size: {self.hidden_size}")
 
-        # Setup pooling
         if pooling == "attention":
             self.pool = AttentionPool(self.hidden_size)
-            print("Using attention pooling")
         elif pooling == "mean":
-            self.pool = None  # Will use mean_pool function
-            print("Using mean pooling")
+            self.pool = None
         elif pooling == "cls":
-            self.pool = None  # Will use cls_pool function
-            print("Using CLS pooling")
+            self.pool = None
         else:
             raise ValueError(f"pooling must be 'attention', 'mean', or 'cls', got: {pooling}")
 
         self.pooling_type = pooling
-
-        # Projection head
         self.proj = ProjectionHead(self.hidden_size, proj_dim=proj_dim, dropout=dropout)
-        print(f"Projection: {self.hidden_size} -> {proj_dim}")
 
     @torch.no_grad()
-    def tokenize(self, seqs, max_len=None):
+    def tokenize(self, sequences, max_length=None):
         """
-        Tokenize protein sequences.
+        Tokenize protein sequences for ESM2 input.
+
+        Converts amino acid sequences into token IDs suitable for the ESM2 model.
+        Automatically adds special tokens (<cls> at start, <eos> at end) and handles
+        padding to create uniform-length batches.
 
         Args:
-            seqs: List of amino acid sequences (strings without spaces)
-                  Example: ["MSKGEELFTGVVPILVELDGDV...", "MAHHHHH..."]
-            max_len: Maximum sequence length (truncate if longer)
+            sequences: List of amino acid sequence strings (without spaces)
+                      Example: ["MSKGEELFTGVVPILVELDGDV...", "MAHHHHH..."]
+            max_length: Maximum sequence length. Longer sequences will be truncated.
+                       If None, no truncation is applied.
 
         Returns:
-            Dictionary with input_ids and attention_mask tensors
+            Dictionary with tokenized inputs:
+                - input_ids: Tensor of token IDs, shape (batch_size, seq_length)
+                - attention_mask: Tensor of attention masks, shape (batch_size, seq_length)
+
+        Example:
+            >>> encoder = ProteinEncoderESM2()
+            >>> seqs = ["MSKGEEL", "MAHHHHH"]
+            >>> batch = encoder.tokenize(seqs, max_length=10)
+            >>> batch['input_ids'].shape
+            torch.Size([2, 9])
         """
-        # Truncate sequences if needed
-        if max_len is not None:
-            seqs = [s[:max_len] for s in seqs]
+        # Truncate sequences if max_length is specified
+        if max_length is not None:
+            sequences = [sequence[:max_length] for sequence in sequences]
 
         # Tokenize with ESM2 tokenizer
         # Automatically adds <cls> at start and <eos> at end
         batch = self.tokenizer(
-            seqs,
+            sequences,
             return_tensors="pt",
             padding=True,
             truncation=True,
@@ -179,40 +182,66 @@ class ProteinEncoderESM2(nn.Module):
 
         return z
 
-    def encode(self, seqs, device="cpu", max_len=None, batch_size=1):
+    def encode(
+        self,
+        sequences,
+        device="cpu",
+        max_length=None,
+        batch_size=1
+    ):
         """
-        Convenience method to encode sequences end-to-end.
+        Encode protein sequences to L2-normalized embeddings end-to-end.
+
+        This is a convenience method that handles the full encoding pipeline:
+        tokenization, forward pass, and batching for memory efficiency.
 
         Args:
-            seqs: List of amino acid sequence strings
-            device: Device to use for computation
-            max_len: Maximum sequence length
-            batch_size: Batch size for processing (None = process all at once)
+            sequences: List of amino acid sequence strings
+                      Example: ["MSKGEEL...", "MAHHHHH..."]
+            device: Device to use for computation ('cpu' or 'cuda')
+            max_length: Maximum sequence length for truncation (None = no truncation)
+            batch_size: Number of sequences to process at once.
+                       If None, process all sequences in one batch.
+                       Use smaller batches to reduce memory usage.
 
         Returns:
-            Tensor of L2-normalized embeddings (N, proj_dim)
+            Tensor of L2-normalized protein embeddings, shape (num_sequences, proj_dim)
+
+        Example:
+            >>> encoder = ProteinEncoderESM2()
+            >>> seqs = ["MSKGEEL", "MAHHHHH", "MVKVYAPASS"]
+            >>> embeddings = encoder.encode(seqs, device='cuda', batch_size=2)
+            >>> embeddings.shape
+            torch.Size([3, 256])
+            >>> torch.norm(embeddings[0])  # Check L2 normalization
+            tensor(1.0000)
         """
         self.eval()
-        embeddings = []
+        all_embeddings = []
 
-        # Handle None batch_size
+        # If batch_size is None, process all sequences at once
         if batch_size is None:
-            batch_size = len(seqs)
+            batch_size = len(sequences)
 
-        # Process in batches
-        for i in range(0, len(seqs), batch_size):
-            batch_seqs = seqs[i:i + batch_size]
+        # Process sequences in batches for memory efficiency
+        for batch_start in range(0, len(sequences), batch_size):
+            # Get current batch of sequences
+            batch_sequences = sequences[batch_start:batch_start + batch_size]
 
-            # Tokenize
-            batch = self.tokenize(batch_seqs, max_len=max_len)
-            batch = {k: v.to(device) for k, v in batch.items()}
+            # Tokenize the batch
+            batch_inputs = self.tokenize(batch_sequences, max_length=max_length)
 
-            # Encode
+            # Move tensors to target device
+            batch_inputs = {key: value.to(device) for key, value in batch_inputs.items()}
+
+            # Encode without gradient computation
             with torch.no_grad():
-                z = self(batch)
-                embeddings.append(z.cpu())
+                batch_embeddings = self(batch_inputs)
+                # Move back to CPU to save GPU memory
+                all_embeddings.append(batch_embeddings.cpu())
 
-        return torch.cat(embeddings, dim=0)
+        # Concatenate all batch embeddings
+        return torch.cat(all_embeddings, dim=0)
 
     def get_embedding_dim(self) -> int:
         """

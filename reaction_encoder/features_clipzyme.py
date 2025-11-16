@@ -276,19 +276,3 @@ def reaction_to_graphs_clipzyme(reaction_smiles: str):
         'product': product_graph,
         'atom_mapping': atom_mapping
     }
-
-
-def normalize_features(features, feature_type='atom'):
-    """
-    Normalize features (optional preprocessing).
-
-    Args:
-        features: Tensor of features (N, D)
-        feature_type: 'atom' or 'bond'
-
-    Returns:
-        Normalized features
-    """
-    # CLIPZyme may or may not use normalization
-    # This is a placeholder if needed
-    return features

@@ -107,16 +107,12 @@ class EncoderFactory:
 
         if encoder_type == 'GNN':
             return EncoderFactory._create_basic_gnn_encoder(config)
-        elif encoder_type == 'Enhanced':
-            return EncoderFactory._create_enhanced_gnn_encoder(config)
         elif encoder_type == 'DMPNN':
             return EncoderFactory._create_dmpnn_encoder(config)
-        elif encoder_type == 'DualBranch':
-            return EncoderFactory._create_dual_branch_encoder(config)
         else:
             raise ValueError(
                 f"Unknown reaction encoder type: {encoder_type}. "
-                f"Supported types: 'GNN', 'Enhanced', 'DMPNN', 'DualBranch'"
+                f"Supported types: 'GNN', 'DMPNN'"
             )
 
     @staticmethod
@@ -176,31 +172,6 @@ class EncoderFactory:
         )
 
     @staticmethod
-    def _create_enhanced_gnn_encoder(config: ReactionEncoderConfig):
-        """Create enhanced GNN encoder with attention pooling."""
-        from reaction_encoder.model_enhanced import ReactionGNNEnhanced
-        from common.reaction_encoder_wrapper import ReactionEncoderWrapper
-
-        node_dim, edge_dim = EncoderFactory._get_feature_dimensions(config)
-
-        model = ReactionGNNEnhanced(
-            x_dim=node_dim,
-            e_dim=edge_dim,
-            hidden=config.hidden_dim,
-            layers=config.num_layers,
-            out_dim=config.proj_dim,
-            dropout=config.dropout,
-            use_attention=config.use_attention_pool,
-        )
-
-        return ReactionEncoderWrapper(
-            model=model,
-            feature_type=config.feature_type,
-            use_dual_branch=False,
-            use_enhanced_features=config.use_enhanced_features
-        )
-
-    @staticmethod
     def _create_dmpnn_encoder(config: ReactionEncoderConfig):
         """Create Two-Stage DMPNN encoder (CLIPZyme architecture)."""
         from reaction_encoder.dmpnn import TwoStageDMPNN
@@ -223,30 +194,6 @@ class EncoderFactory:
             use_dual_branch=False,
             use_enhanced_features=config.use_enhanced_features
         )
-
-    @staticmethod
-    def _create_dual_branch_encoder(config: ReactionEncoderConfig):
-        """Create Dual Branch GNN encoder."""
-        from reaction_encoder.model_enhanced import DualBranchReactionGNN
-        from common.reaction_encoder_wrapper import ReactionEncoderWrapper
-
-        node_dim, edge_dim = EncoderFactory._get_feature_dimensions(config)
-
-        model = DualBranchReactionGNN(
-            x_dim=node_dim,
-            e_dim=edge_dim,
-            hidden=config.hidden_dim,
-            layers=config.num_layers,
-            out_dim=config.proj_dim,
-        )
-
-        return ReactionEncoderWrapper(
-            model=model,
-            feature_type=config.feature_type,
-            use_dual_branch=True,
-            use_enhanced_features=config.use_enhanced_features
-        )
-
 
 class ModelFactory:
     """
